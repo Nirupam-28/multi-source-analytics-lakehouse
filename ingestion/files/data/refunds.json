@@ -1,0 +1,25 @@
+{
+  "refunds": [
+    {
+      "refund_id": "REF001",
+      "payment_id": "PAY003",
+      "refund_amount": 450.00,
+      "refund_status": "COMPLETED",
+      "refund_date": "2026-11-19"
+    },
+    {
+      "refund_id": "REF002",
+      "payment_id": "PAY005",
+      "refund_amount": 1750.00,
+      "refund_status": "PENDING",
+      "refund_date": "2026-11-20"
+    },
+    {
+      "refund_id": "REF003",
+      "payment_id": "PAY008",
+      "refund_amount": 200.00,
+      "refund_status": "COMPLETED",
+      "refund_date": "2026-11-20"
+    }
+  ]
+}
