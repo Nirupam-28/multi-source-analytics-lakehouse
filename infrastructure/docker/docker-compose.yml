@@ -1,0 +1,95 @@
+
+services:
+
+  # Object Storage - Data Lake
+  minio:
+    image: docker.io/pgsty/silo:RELEASE.2026-11-12T00-00-00Z
+    container_name: lakehouse-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: LakehouseMinioDev2026!
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Relational Source Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: lakehouse-postgres
+    environment:
+      POSTGRES_DB: retailpulse
+      POSTGRES_USER: retailpulse_admin
+      POSTGRES_PASSWORD: RetailPulseDbDev2026!
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retailpulse_admin -d retailpulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Iceberg Catalog
+  nessie:
+    image: ghcr.io/projectnessie/nessie:0.110.0
+    container_name: lakehouse-nessie
+    ports:
+      - "19120:19120"
+    mem_limit: 768m
+    restart: unless-stopped
+
+  # SQL Query Engine
+  trino:
+    image: trinodb/trino:484
+    container_name: lakehouse-trino
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # Spark Master
+  spark-master:
+    image: apache/spark:3.5.6
+    container_name: lakehouse-spark-master
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.master.Master
+    environment:
+      SPARK_MASTER_HOST: spark-master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    mem_limit: 1g
+    restart: unless-stopped
+
+  # Spark Worker
+  spark-worker:
+    image: apache/spark:3.5.6
+    container_name: lakehouse-spark-worker
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8081"
+    mem_limit: 3g
+    restart: unless-stopped
+
+volumes:
+  minio_data:
+  postgres_data:
