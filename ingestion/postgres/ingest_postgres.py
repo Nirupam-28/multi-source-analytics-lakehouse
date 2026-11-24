@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 
 from config.storage import StorageClient
 
+from monitoring.pipeline_metrics import PipelineMetrics
+
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,8 +53,8 @@ def json_serializer(value):
 def get_postgres_connection():
 
     return psycopg2.connect(
-        host="localhost",
-        port=5432,
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
         database=os.getenv("POSTGRES_DB"),
         user=os.getenv("POSTGRES_USER"),
         password=os.getenv("POSTGRES_PASSWORD")
@@ -80,68 +82,70 @@ def extract_table(cursor, table_name):
 
 def ingest_postgres():
 
-    run_id = str(uuid.uuid4())
+    with PipelineMetrics("bronze", "postgres") as metrics:
 
-    ingestion_time = datetime.now(timezone.utc)
+        run_id = str(uuid.uuid4())
 
-    ingestion_date = ingestion_time.strftime("%Y-%m-%d")
+        ingestion_time = datetime.now(timezone.utc)
+        ingestion_date = ingestion_time.strftime("%Y-%m-%d")
 
-    logger.info("Starting PostgreSQL ingestion")
-    logger.info("Run ID: %s", run_id)
+        logger.info("Starting PostgreSQL ingestion")
+        logger.info("Run ID: %s", run_id)
 
-    storage = StorageClient()
+        storage = StorageClient()
+        connection = get_postgres_connection()
 
-    connection = get_postgres_connection()
+        total_records = 0
 
-    try:
+        try:
+            with connection.cursor(
+                cursor_factory=RealDictCursor
+            ) as cursor:
 
-        with connection.cursor(
-            cursor_factory=RealDictCursor
-        ) as cursor:
+                for table_name in TABLES:
 
-            for table_name in TABLES:
+                    records = extract_table(cursor, table_name)
 
-                records = extract_table(
-                    cursor,
-                    table_name
-                )
+                    payload = {
+                        "metadata": {
+                            "source": "retailpulse_postgres",
+                            "entity": table_name,
+                            "run_id": run_id,
+                            "ingestion_timestamp": ingestion_time.isoformat(),
+                            "record_count": len(records)
+                        },
+                        "data": records
+                    }
 
-                payload = {
-                    "metadata": {
-                        "source": "retailpulse_postgres",
-                        "entity": table_name,
-                        "run_id": run_id,
-                        "ingestion_timestamp": ingestion_time.isoformat(),
-                        "record_count": len(records)
-                    },
-                    "data": records
-                }
+                    object_key = (
+                        f"postgres/{table_name}/"
+                        f"ingestion_date={ingestion_date}/"
+                        f"run_id={run_id}/"
+                        f"{table_name}.json"
+                    )
 
-                object_key = (
-                    f"postgres/{table_name}/"
-                    f"ingestion_date={ingestion_date}/"
-                    f"run_id={run_id}/"
-                    f"{table_name}.json"
-                )
+                    storage.upload_bytes(
+                        data=json.dumps(
+                            payload,
+                            default=json_serializer,
+                            indent=2
+                        ).encode("utf-8"),
+                        bucket_name=storage.buckets["bronze"],
+                        object_key=object_key,
+                        content_type="application/json"
+                    )
 
-                storage.upload_bytes(
-                    data=json.dumps(
-                        payload,
-                        default=json_serializer,
-                        indent=2
-                    ).encode("utf-8"),
-                    bucket_name=storage.buckets["bronze"],
-                    object_key=object_key,
-                    content_type="application/json"
-                )
+                    total_records += len(records)
 
-        logger.info(
-            "PostgreSQL ingestion completed successfully"
-        )
+            metrics.record_records(total_records)
 
-    finally:
+            logger.info(
+                "PostgreSQL ingestion completed successfully"
+            )
+            logger.info("Total records ingested: %s", total_records)
 
-        connection.close()
+        finally:
+            connection.close()
 
 
 if __name__ == "__main__":

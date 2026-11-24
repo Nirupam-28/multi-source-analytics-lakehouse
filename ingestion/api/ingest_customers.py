@@ -9,6 +9,8 @@ from config.storage import StorageClient
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from monitoring.pipeline_metrics import PipelineMetrics
+
 
 API_URL = "https://dummyjson.com/users"
 PAGE_SIZE = 100
@@ -93,48 +95,51 @@ def fetch_customers():
 
 def ingest_customers():
 
-    run_id = str(uuid.uuid4())
+    with PipelineMetrics("bronze", "api_customers") as metrics:
 
-    ingestion_time = datetime.now(timezone.utc)
+        run_id = str(uuid.uuid4())
 
-    logger.info("Starting customer ingestion")
-    logger.info("Run ID: %s", run_id)
+        ingestion_time = datetime.now(timezone.utc)
 
-    customers = fetch_customers()
+        logger.info("Starting customer ingestion")
+        logger.info("Run ID: %s", run_id)
 
-    payload = {
-        "metadata": {
-            "source": "dummyjson_api",
-            "entity": "customers",
-            "run_id": run_id,
-            "ingestion_timestamp": ingestion_time.isoformat(),
-            "record_count": len(customers)
-        },
-        "data": customers
-    }
+        customers = fetch_customers()
 
-    ingestion_date = ingestion_time.strftime("%Y-%m-%d")
+        payload = {
+            "metadata": {
+                "source": "dummyjson_api",
+                "entity": "customers",
+                "run_id": run_id,
+                "ingestion_timestamp": ingestion_time.isoformat(),
+                "record_count": len(customers)
+            },
+            "data": customers
+        }
 
-    object_key = (
-        f"customers/ingestion_date={ingestion_date}/"
-        f"run_id={run_id}/customers.json"
-    )
+        ingestion_date = ingestion_time.strftime("%Y-%m-%d")
 
-    storage = StorageClient()
+        object_key = (
+            f"customers/ingestion_date={ingestion_date}/"
+            f"run_id={run_id}/customers.json"
+        )
 
-    storage.upload_bytes(
-        data=json.dumps(payload, indent=2).encode("utf-8"),
-        bucket_name=storage.buckets["bronze"],
-        object_key=object_key,
-        content_type="application/json"
-    )
+        storage = StorageClient()
 
-    logger.info("Customer ingestion completed")
-    logger.info(
-        "Total records ingested: %s",
-        len(customers)
-    )
+        storage.upload_bytes(
+            data=json.dumps(payload, indent=2).encode("utf-8"),
+            bucket_name=storage.buckets["bronze"],
+            object_key=object_key,
+            content_type="application/json"
+        )
 
+        metrics.record_records(len(customers))
+
+        logger.info("Customer ingestion completed")
+        logger.info(
+            "Total records ingested: %s",
+            len(customers)
+        )
 
 if __name__ == "__main__":
     ingest_customers()

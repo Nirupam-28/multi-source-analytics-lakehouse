@@ -80,3 +80,22 @@ class StorageClient:
         )
 
         print(f"Deleted s3://{bucket_name}/{object_key}")
+
+    def upload_bytes(
+        self,
+        data,
+        bucket_name,
+        object_key,
+        content_type="application/octet-stream"
+    ):
+
+        self.client.put_object(
+            Bucket=bucket_name,
+            Key=object_key,
+            Body=data,
+            ContentType=content_type
+        )
+
+        print(
+            f"Uploaded s3://{bucket_name}/{object_key}"
+        )

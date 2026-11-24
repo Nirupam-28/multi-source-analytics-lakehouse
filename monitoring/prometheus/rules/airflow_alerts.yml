@@ -1,0 +1,23 @@
+groups:
+  - name: airflow_alerts
+    rules:
+
+      # Alert when DAG import errors occur
+      - alert: AirflowDAGImportErrors
+        expr: airflow_dag_processing_import_errors > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Airflow DAG import errors detected"
+          description: "Airflow has one or more DAG import errors."
+
+      # Alert when Prometheus cannot scrape Airflow metrics
+      - alert: AirflowMetricsTargetDown
+        expr: up{job="airflow"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Airflow metrics target is down"
+          description: "Prometheus cannot scrape the Airflow StatsD exporter."

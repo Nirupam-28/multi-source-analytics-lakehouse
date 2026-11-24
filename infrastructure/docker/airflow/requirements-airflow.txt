@@ -1,0 +1,4 @@
+boto3==1.42.30
+python-dotenv==1.2.1
+psycopg2-binary==2.9.11
+pyspark==3.5.6

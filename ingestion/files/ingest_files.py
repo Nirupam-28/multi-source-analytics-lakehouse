@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from config.storage import StorageClient
 
+from monitoring.pipeline_metrics import PipelineMetrics
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,60 +63,65 @@ def discover_files():
 
 def ingest_files():
 
-    run_id = str(uuid.uuid4())
+    with PipelineMetrics("bronze", "files") as metrics:
 
-    ingestion_time = datetime.now(timezone.utc)
+        run_id = str(uuid.uuid4())
 
-    ingestion_date = ingestion_time.strftime("%Y-%m-%d")
+        ingestion_time = datetime.now(timezone.utc)
+        ingestion_date = ingestion_time.strftime("%Y-%m-%d")
 
-    logger.info("Starting file ingestion")
-    logger.info("Run ID: %s", run_id)
+        logger.info("Starting file ingestion")
+        logger.info("Run ID: %s", run_id)
 
-    storage = StorageClient()
+        storage = StorageClient()
+        files = discover_files()
 
-    files = discover_files()
+        if not files:
+            logger.warning("No supported files found")
+            metrics.record_records(0)
+            return
 
-    if not files:
-        logger.warning("No supported files found")
-        return
+        total_files = 0
 
-    for file_path in files:
+        for file_path in files:
 
-        filename = os.path.basename(file_path)
+            filename = os.path.basename(file_path)
+            extension = os.path.splitext(filename)[1].lower()
+            content_type = SUPPORTED_EXTENSIONS[extension]
 
-        extension = os.path.splitext(filename)[1].lower()
+            logger.info("Processing file: %s", filename)
 
-        content_type = SUPPORTED_EXTENSIONS[extension]
+            with open(file_path, "rb") as file:
+                file_content = file.read()
 
-        logger.info("Processing file: %s", filename)
+            object_key = (
+                f"files/{filename}/"
+                f"ingestion_date={ingestion_date}/"
+                f"run_id={run_id}/"
+                f"{filename}"
+            )
 
-        with open(file_path, "rb") as file:
-            file_content = file.read()
+            storage.upload_bytes(
+                data=file_content,
+                bucket_name=storage.buckets["bronze"],
+                object_key=object_key,
+                content_type=content_type
+            )
 
-        object_key = (
-            f"files/{filename}/"
-            f"ingestion_date={ingestion_date}/"
-            f"run_id={run_id}/"
-            f"{filename}"
-        )
+            total_files += 1
 
-        storage.upload_bytes(
-            data=file_content,
-            bucket_name=storage.buckets["bronze"],
-            object_key=object_key,
-            content_type=content_type
-        )
+            logger.info(
+                "Successfully ingested %s (%s bytes)",
+                filename,
+                len(file_content)
+            )
+
+        metrics.record_records(total_files)
 
         logger.info(
-            "Successfully ingested %s (%s bytes)",
-            filename,
-            len(file_content)
+            "File ingestion completed successfully. Total files: %s",
+            total_files
         )
-
-    logger.info(
-        "File ingestion completed successfully. Total files: %s",
-        len(files)
-    )
 
 
 if __name__ == "__main__":
